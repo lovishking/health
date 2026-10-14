@@ -1,0 +1,567 @@
+# MASTER PROMPT: Build a Complete Real-Time Healthcare Decision Support System
+
+## 1. Your role
+
+Act as a senior full-stack engineer, backend architect, data engineer, and machine-learning engineer. Build a complete, runnable academic project named **Real-Time Healthcare Decision Support System (RT-HDSS)** from the beginning.
+
+Do not give me only an architecture, tutorial, pseudocode, or code snippets. Create the actual project files, implement the application, run tests, fix errors, and provide exact commands to run the entire system.
+
+I am a student with limited hardware and time. I want a working end-to-end demonstration as quickly as possible, followed by a modular architecture that supports advanced ML models and real wearable integration later.
+
+I am starting from scratch. My previous reference repository is:
+
+https://github.com/Armanmustafa-oss/api-health-monitor.git
+
+Inspect the current workspace first. If this repository is already available, inspect its files and reuse any useful dashboard components. Do not assume that its API-health monitoring functionality implements healthcare monitoring. If the repository is not present locally, create the project in the current workspace and explain how to clone it separately.
+
+## 2. Project objective
+
+Build a real-time patient deterioration early-warning and clinical decision-support prototype.
+
+The application must receive timestamped physiological measurements, store them, process them, assess potential risk, explain its output, and display the results on a live dashboard.
+
+The initial data source will be historical ICU data replayed at configurable intervals. Real wearable integration is future scope.
+
+The system must never claim that it can determine with certainty whether someone will live or die. It is a research prototype that supports clinical review; it does not replace a qualified healthcare professional.
+
+## 3. Technology stack
+
+Use one consistent implementation with the following stack.
+
+### Frontend
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- Recharts for vital-sign time-series charts
+- Axios for REST API requests
+- Native WebSocket API for live updates
+- React Router for navigation
+
+### Backend
+- Python
+- FastAPI
+- Pydantic for request validation
+- SQLAlchemy for database operations
+- Alembic for database migrations
+- Uvicorn as the application server
+
+### Database and real-time processing
+- SQLite initially for fast local setup
+- PostgreSQL as the target persistent database
+- Redis for recent-reading windows, caching and optional background processing
+- WebSockets for dashboard updates
+
+Keep SQLite as the default development mode so the MVP can run without installing a separate database server. Make PostgreSQL configurable through environment variables. Add Redis when implementing the temporal model or worker integration.
+
+### Machine learning
+- Pandas and NumPy for data processing
+- scikit-learn for preprocessing and evaluation
+- XGBoost for static risk classification
+- PyTorch for the LSTM temporal model
+- SHAP for XGBoost feature explanations
+- Joblib or an appropriate model serialization method for versioned model artifacts
+
+### Testing and deployment
+- Pytest and HTTPX for backend/API tests
+- Vitest and React Testing Library for frontend tests
+- Docker and Docker Compose for reproducible deployment
+
+Avoid Kafka, Kubernetes, paid cloud services and unnecessary microservices in the initial version.
+
+## 4. System architecture
+
+Implement the following data flow:
+
+Historical ICU Dataset
+→ Python Replay Engine
+→ FastAPI Ingestion API
+→ Validation and Preprocessing
+→ PostgreSQL/SQLite Storage
+→ Redis Recent-Reading Buffer
+→ XGBoost Static Model
+→ LSTM Temporal Model
+→ Hybrid Decision Fusion
+→ Clinical Safety Rule Override
+→ Explainability and Alert Generation
+→ Database Audit Records
+→ WebSocket Event Publisher
+→ React Dashboard
+
+Critical alerts may also be sent to an authorized recipient through a background notification worker and Twilio SMS.
+
+The future BLE adapter must feed measurements into the same ingestion interface as the replay engine. It must not require a separate prediction pipeline.
+
+## 5. Phase 0: Inspect the environment and initialize the project
+
+Before writing substantial code:
+
+1. Inspect the current working directory and existing files.
+2. Inspect the reference repository if it is locally available.
+3. Identify installed Python, Node.js and package-manager versions.
+4. Check which ports and database services are available.
+5. Create a concise implementation checklist.
+6. Choose compatible dependency versions.
+7. Create the Git repository structure and `.gitignore`.
+8. Create `.env.example` without real credentials.
+
+Do not stop after writing a plan. Begin implementation immediately after this inspection.
+
+Do not delete useful existing files without inspecting them. Do not maintain two separate backend implementations.
+
+## 6. Phase 1: Build the core application first
+
+Create a working backend and frontend before starting complex ML work.
+
+### Backend folder structure
+
+backend/
+- app/main.py
+- app/core/config.py
+- app/core/security.py
+- app/db/session.py
+- app/db/base.py
+- app/models/
+- app/schemas/
+- app/api/v1/
+- app/services/
+- app/ml/
+- app/realtime/
+- app/workers/
+- tests/
+- requirements.txt
+- Dockerfile
+
+### Frontend folder structure
+
+frontend/
+- src/api/
+- src/components/
+- src/hooks/
+- src/layouts/
+- src/pages/
+- src/types/
+- src/utils/
+- src/App.tsx
+- src/main.tsx
+- package.json
+- Dockerfile
+
+Also create:
+
+- `simulator/replay_engine.py`
+- `simulator/synthetic_generator.py`
+- `ml/data_loader.py`
+- `ml/prepare_dataset.py`
+- `ml/train_xgboost.py`
+- `ml/train_lstm.py`
+- `ml/evaluate.py`
+- `infra/docker-compose.yml`
+- `docs/architecture.md`
+- `README.md`
+
+Create additional files only when needed.
+
+Initially, implement a health endpoint and database connectivity. Then implement patient creation, reading ingestion and reading-history retrieval.
+
+## 7. Phase 2: Implement the database
+
+Create these tables using SQLAlchemy models and Alembic migrations.
+
+### users
+Fields:
+- id
+- email
+- password_hash
+- role
+- is_active
+- created_at
+
+### patients
+Fields:
+- id
+- display_id
+- display_name, if required
+- status
+- created_at
+
+### vital_readings
+Fields:
+- id
+- patient_id
+- source
+- source_event_id
+- event_timestamp
+- ingested_at
+- heart_rate
+- spo2
+- systolic_bp
+- diastolic_bp
+- respiratory_rate
+- temperature
+- quality_flags
+
+### risk_predictions
+Fields:
+- id
+- patient_id
+- reading_id
+- model_version
+- stable_probability
+- warning_probability
+- critical_probability
+- model_tier
+- final_tier
+- decision_source
+- explanation
+- created_at
+
+### alerts
+Fields:
+- id
+- patient_id
+- prediction_id
+- severity
+- message
+- status
+- created_at
+- acknowledged_by
+- acknowledged_at
+
+### notification_logs
+Fields:
+- id
+- alert_id
+- channel
+- provider_message_id
+- delivery_status
+- attempt_count
+- created_at
+
+### audit_logs
+Fields:
+- id
+- actor_id
+- action
+- resource_type
+- resource_id
+- created_at
+- metadata
+
+Use UUIDs or another consistent identifier strategy, foreign keys, timestamps with timezone awareness, appropriate indexes, database constraints and pagination.
+
+Make reading ingestion idempotent where a stable source event identifier is available. Do not store passwords in plain text. Use a proper password-hashing library if authentication is implemented.
+
+Keep data-access code separate from route handlers.
+
+## 8. Phase 3: Define the common data-ingestion interface
+
+All data sources must use one validated input schema.
+
+Example payload:
+
+{
+  "patient_id": "DEMO-001",
+  "source": "physionet_replay",
+  "source_event_id": "event-000123",
+  "event_timestamp": "2026-10-14T10:00:00Z",
+  "heart_rate": 82,
+  "spo2": 97,
+  "systolic_bp": 118,
+  "diastolic_bp": 76,
+  "respiratory_rate": 16,
+  "temperature": 37.0
+}
+
+Treat this payload as an example, not a guaranteed representation of the dataset.
+
+Implement these endpoints:
+
+- GET `/health`
+- GET `/api/v1/patients`
+- POST `/api/v1/patients`
+- GET `/api/v1/patients/{patient_id}`
+- POST `/api/v1/patients/{patient_id}/readings`
+- POST `/api/v1/readings/batch`
+- GET `/api/v1/patients/{patient_id}/readings`
+- GET `/api/v1/patients/{patient_id}/risk`
+- GET `/api/v1/patients/{patient_id}/predictions`
+- GET `/api/v1/patients/{patient_id}/alerts`
+- POST `/api/v1/alerts/{alert_id}/acknowledge`
+- WebSocket `/api/v1/ws/patients/{patient_id}`
+
+The ingestion service must validate the patient, payload, timestamps, available fields and units; flag missing or invalid measurements; store the reading; update the recent-data buffer if configured; invoke the available assessment pipeline; and publish the result.
+
+Do not fabricate a prediction when an assessment cannot run. Return an explicit unavailable or insufficient-data state.
+
+## 9. Phase 4: Implement historical ICU data replay
+
+Use the PhysioNet Challenge 2012 dataset identified in my project report as a candidate source.
+
+Inspect the dataset files and document the actual fields, sampling frequency, patient identifiers, outcome labels and licensing requirements before writing the column mapping.
+
+Do not assume every patient has all six of the vital signs in the example schema.
+
+Implement `simulator/replay_engine.py` to:
+
+1. Load the selected dataset.
+2. Select a patient or a small group of patients.
+3. Read observations in chronological order.
+4. Map available fields into the common schema.
+5. Send observations to the FastAPI ingestion endpoint.
+6. Preserve original measurement timestamps.
+7. Record actual ingestion timestamps separately.
+8. Support configurable playback speed, start, pause, resume and stop.
+9. Report successfully sent records, skipped records and errors.
+10. Identify replayed data clearly in the dashboard.
+
+Provide a synthetic-data generator for software testing. Synthetic records must be clearly labeled and must not be presented as real patient measurements.
+
+If the dataset is unavailable, implement the data-loader interface and provide a small clearly labeled synthetic fixture so the application can still run. Document the steps required to configure the real dataset. Never silently substitute synthetic data for ICU data.
+
+## 10. Phase 5: Implement data preprocessing and Redis
+
+Create a reusable preprocessing service.
+
+It must:
+- Validate physiologically plausible ranges as data-quality checks.
+- Preserve raw readings.
+- Record missingness and invalid values.
+- Handle out-of-order and stale observations.
+- Use the same feature ordering and preprocessing artifacts during training and inference.
+- Prevent data from one patient entering another patient's sequence.
+- Maintain a bounded recent-history window in Redis when Redis is enabled.
+- Avoid treating imputed values as genuine fresh measurements.
+
+Do not blindly replace all missing values with population averages. Document each imputation method and expose missing-data information to the models.
+
+Redis must be optional in the minimal local configuration but supported by the full configuration.
+
+## 11. Phase 6: Implement the preliminary assessment engine
+
+Before the ML models are trained, implement an explicitly labeled prototype risk-assessment service to test the end-to-end application.
+
+Keep any initial assessment rules configurable. Base their structure on the project report, but mark the numerical thresholds as provisional research settings requiring appropriate clinical review.
+
+The rule engine must:
+- Process the original, unscaled readings.
+- Record which rule was triggered.
+- Preserve the source measurement and timestamp.
+- Handle incomplete and stale readings explicitly.
+- Never lower an assessment produced by the safety override.
+- Clearly distinguish rule-based output from a trained-model prediction.
+
+The dashboard must identify this output as preliminary and not clinically validated.
+
+Do not describe a simple threshold engine as XGBoost, LSTM or an AI prediction.
+
+## 12. Phase 7: Train the XGBoost model
+
+Create a reproducible training pipeline.
+
+Requirements:
+1. Inspect the dataset and document the prediction target.
+2. Establish a defensible method for labeling the intended classes.
+3. Split data by patient to prevent leakage between training and evaluation.
+4. Fit preprocessing only on the training partition.
+5. Train XGBoost using the selected valid target.
+6. Evaluate class-specific precision, recall, confusion matrix and false-negative rate.
+7. Assess probability calibration where appropriate.
+8. Save the fitted model, preprocessing configuration and model version.
+9. Implement an inference wrapper returning class probabilities and prediction metadata.
+10. Integrate the inference wrapper into the backend.
+
+The report proposes Stable, Warning and Critical classes. Do not assume the ICU dataset directly provides these three labels. If no defensible labeling strategy is available, do not invent clinical labels. Build the training framework and report that model training remains incomplete.
+
+Never fabricate evaluation metrics or claim the model is validated when it is not.
+
+## 13. Phase 8: Train the LSTM model
+
+Build a temporal model using PyTorch.
+
+Requirements:
+- Create fixed-length chronological sequences for each patient.
+- Define the same intended prediction task and class schema as the static model where justified.
+- Prevent overlapping sequences or patient records from leaking across training and test partitions.
+- Track missingness and sequence padding.
+- Train using reproducible settings.
+- Evaluate on held-out patients.
+- Save model weights, feature ordering, sequence length and preprocessing configuration.
+- Implement a reliable inference wrapper.
+- Report its limitations and metrics honestly.
+
+If the labels, dataset fields or available hardware do not support meaningful training, build and test the data pipeline without claiming that a valid trained LSTM exists.
+
+Do not download enormous model files or assume a GPU is available.
+
+## 14. Phase 9: Hybrid fusion, safety override and SHAP
+
+Implement the hybrid decision fusion:
+
+P_H(c) = alpha * P_S(c) + (1 - alpha) * P_T(c)
+
+where:
+- P_S is the XGBoost class probability.
+- P_T is the LSTM class probability.
+- alpha is configured and selected using suitable validation results.
+
+Start with the report's proposed alpha of 0.5, but do not claim that this is optimal without evaluation.
+
+Integrate the safety-rule override after fusion. Record the model output, the final output, the rule-trigger reason and the model version.
+
+Implement TreeSHAP for the XGBoost model. Store the feature contributions and generate a concise explanation that accurately reflects the model output. Do not state that a feature caused a patient's condition.
+
+If either model is unavailable, report the missing model and use only the explicitly configured fallback behavior. Do not manufacture placeholder probabilities that look like model predictions.
+
+## 15. Phase 10: Build the React dashboard
+
+Implement a responsive clinician-oriented dashboard with the following pages.
+
+### Overview
+- Number of monitored demo patients.
+- Latest reading timestamps.
+- Current assessment distribution.
+- Recent alerts.
+- Replay status.
+- Connection status.
+
+### Patient monitoring
+- Patient selector.
+- Heart rate, SpO2, systolic/diastolic pressure, respiratory rate and temperature.
+- Time-series charts.
+- Reading history.
+- Source and data-freshness indicators.
+
+### Risk explanation
+- Final assessment and decision source.
+- Model probabilities, only when real model outputs are available.
+- Safety-rule trigger, if applicable.
+- XGBoost feature contributions when SHAP is available.
+- Model version, timestamp and missing-data warning.
+
+### Alert management
+- Severity, reason and timestamps.
+- Acknowledge and resolve actions.
+- Notification delivery status.
+
+### Data-source control
+- Start, pause, resume and stop replay.
+- Configure replay speed.
+- Display the selected dataset.
+- Show whether data is replayed, synthetic or supplied by a wearable.
+
+Use REST APIs to load the initial page and WebSockets to receive subsequent updates. Implement reconnection with backoff and refresh the latest state after reconnection.
+
+Never display sample values as actual patient measurements without labeling them as sample data.
+
+## 16. Phase 11: Alerts and optional SMS
+
+Implement the alert workflow using an alert service and a background notification worker.
+
+Requirements:
+- Create alerts only according to the configured prototype decision policy.
+- Deduplicate repeated events.
+- Support configurable cooldowns.
+- Log delivery attempts and failures.
+- Use bounded retries.
+- Support user acknowledgment and resolution.
+- Provide a mock notification provider that works without external credentials.
+- Integrate Twilio only when credentials are supplied.
+
+Do not automatically contact emergency services. SMS notifications are informational and intended for authorized recipients who can review the situation.
+
+Do not block data ingestion while waiting for an external SMS provider.
+
+## 17. Phase 12: Security, reliability and deployment
+
+Implement:
+- Request validation.
+- Authentication and patient-level authorization for protected endpoints.
+- Password hashing and secret management.
+- Restricted WebSocket subscriptions.
+- Structured logging without unnecessary patient information.
+- Database migrations.
+- Duplicate-event handling.
+- Explicit model-failure states.
+- Stale-data warnings.
+- Database backup guidance.
+- Unit and integration tests.
+- Docker Compose for the backend, frontend, PostgreSQL and Redis.
+- Health checks and a reproducible README.
+
+Use a development configuration that can run on a standard laptop. Keep paid external services optional.
+
+## 18. Mandatory tests
+
+At minimum, test these scenarios:
+
+1. A valid reading is accepted and stored.
+2. Duplicate input does not create duplicate records or alerts.
+3. Invalid fields are flagged.
+4. Missing vital signs are not fabricated.
+5. Out-of-order data is handled correctly.
+6. A stale reading is visibly identified.
+7. An unavailable model does not generate a fake prediction.
+8. A triggered safety rule records its reason.
+9. A dashboard client receives a valid WebSocket event.
+10. Unauthorized users cannot access protected patient information.
+11. The replay process reports failures and can be stopped.
+12. A failed SMS delivery is logged and retried according to policy.
+13. The application starts correctly using the documented instructions.
+
+Use synthetic fixtures for deterministic software tests. Keep testing claims separate from clinical model evaluation.
+
+## 19. Required execution workflow
+
+Work phase by phase and create the actual source files.
+
+For each phase:
+
+1. State the specific deliverable.
+2. Implement the relevant files.
+3. Run the applicable tests and startup commands.
+4. Read the full error messages if something fails.
+5. Fix the errors before proceeding.
+6. Explain which files changed and what was verified.
+7. Provide the next exact commands.
+
+Do not simply generate every file without running the application.
+
+Do not repeatedly ask me whether you should continue. Proceed through the phases automatically unless you encounter a genuine blocker that requires my input, such as unavailable dataset credentials or a missing system dependency.
+
+If time is limited, prioritize the minimum working end-to-end flow:
+- FastAPI backend.
+- SQLite database.
+- Historical/synthetic replay interface.
+- Reading ingestion and persistence.
+- Preliminary, clearly labeled assessment engine.
+- React dashboard with live updates.
+- Testable startup instructions.
+
+Then implement the models and optional infrastructure in subsequent phases. Clearly report every incomplete component.
+
+## 20. Required final deliverables
+
+When the implementation is complete, provide:
+
+1. The final project directory structure.
+2. All required source files.
+3. Exact installation commands.
+4. Exact commands to start the backend and frontend.
+5. Database initialization and migration instructions.
+6. Dataset download/configuration instructions.
+7. Instructions to run the replay engine.
+8. API documentation access instructions.
+9. Test commands and actual test results.
+10. Demonstration steps from sending a reading to displaying an assessment.
+11. The model evaluation report, if models were genuinely trained.
+12. The known limitations and incomplete components.
+13. A final architecture diagram.
+14. A README suitable for an academic project submission.
+15. A list of future extensions, especially BLE wearable integration.
+
+Never claim a service, model, dataset, or feature is working unless it has actually been implemented and tested.
+
+## Start now
+
+Inspect the current environment and repository. Produce the initial checklist, create the working project structure and implement Phase 1 immediately. Continue until the end-to-end MVP is runnable, then proceed with the ML and infrastructure phases as far as the available time, data and hardware allow.
