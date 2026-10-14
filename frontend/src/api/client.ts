@@ -11,14 +11,46 @@ export const apiClient = axios.create({
   timeout: 10000,
 });
 
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('auth_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+export interface SmtpSettingsPayload {
+  smtp_host: string;
+  smtp_port: number;
+  smtp_username?: string;
+  smtp_password: string;
+  smtp_from_email: string;
+  smtp_from_name?: string;
+  smtp_use_tls: boolean;
+  smtp_enabled: boolean;
+}
+
 export const api = {
   // Users / Clinicians
   getUsers: async (): Promise<ClinicianUser[]> => {
     const res = await apiClient.get<ClinicianUser[]>('/users');
     return res.data;
   },
-  createUser: async (user: { email: string; display_name?: string; phone_number?: string; role?: string }): Promise<ClinicianUser> => {
+  createUser: async (user: { email: string; display_name?: string; phone_number?: string; role?: string; password: string }): Promise<ClinicianUser> => {
     const res = await apiClient.post<ClinicianUser>('/users', user);
+    return res.data;
+  },
+  loginUser: async (credentials: { email: string; password: string }): Promise<string> => {
+    const res = await apiClient.post<{ access_token: string; token_type: string }>('/users/login', credentials);
+    localStorage.setItem('auth_token', res.data.access_token);
+    return res.data.access_token;
+  },
+  getMe: async (): Promise<ClinicianUser> => {
+    const res = await apiClient.get<ClinicianUser>('/users/me');
+    return res.data;
+  },
+  updateMySmtpSettings: async (settings: SmtpSettingsPayload): Promise<ClinicianUser> => {
+    const res = await apiClient.put<ClinicianUser>('/users/me/smtp', settings);
     return res.data;
   },
 

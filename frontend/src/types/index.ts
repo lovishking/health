@@ -5,6 +5,13 @@ export interface ClinicianUser {
   phone_number?: string;
   role: string;
   is_active: boolean;
+  smtp_enabled: boolean;
+  smtp_host?: string;
+  smtp_port?: string;
+  smtp_username?: string;
+  smtp_from_email?: string;
+  smtp_from_name?: string;
+  smtp_use_tls: boolean;
   created_at: string;
 }
 

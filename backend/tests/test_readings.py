@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+from app.models.notification import NotificationLog
+
 
 def test_ingest_normal_reading(client):
     reading_payload = {
@@ -63,6 +65,81 @@ def test_safety_rule_override_and_alert(client):
     assert ack_resp.status_code == 200
     assert ack_resp.json()["status"] == "acknowledged"
     assert ack_resp.json()["acknowledged_by"] == "Dr. Smith"
+
+
+def test_critical_alert_creates_email_notification_log(client, db_session, monkeypatch):
+    class DummySmtp:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def starttls(self):
+            pass
+
+        def login(self, username, password):
+            pass
+
+        def send_message(self, message):
+            pass
+
+    monkeypatch.setattr("app.services.notification_service.smtplib.SMTP", DummySmtp)
+
+    user_resp = client.post("/api/v1/users", json={
+        "email": "critical-alerts@example.org",
+        "display_name": "Critical Alerts Clinician",
+        "role": "user",
+        "password": "StrongPass123!"
+    })
+    assert user_resp.status_code == 201
+    login_resp = client.post("/api/v1/users/login", json={
+        "email": "critical-alerts@example.org",
+        "password": "StrongPass123!"
+    })
+    assert login_resp.status_code == 200
+    token = login_resp.json()["access_token"]
+    smtp_resp = client.put(
+        "/api/v1/users/me/smtp",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "smtp_host": "smtp.example.org",
+            "smtp_port": 587,
+            "smtp_username": "critical-alerts@example.org",
+            "smtp_password": "smtp-secret",
+            "smtp_from_email": "critical-alerts@example.org",
+            "smtp_from_name": "Critical Alerts",
+            "smtp_use_tls": True,
+            "smtp_enabled": True,
+        }
+    )
+    assert smtp_resp.status_code == 200
+
+    critical_payload = {
+        "source": "synthetic",
+        "source_event_id": "evt-email-critical-01",
+        "event_timestamp": datetime.now(timezone.utc).isoformat(),
+        "heart_rate": 170.0,
+        "spo2": 81.0,
+        "systolic_bp": 72.0,
+    }
+    response = client.post("/api/v1/patients/TEST-EMAIL-CRIT/readings", json=critical_payload)
+    assert response.status_code == 201
+
+    alert_resp = client.get("/api/v1/patients/TEST-EMAIL-CRIT/alerts")
+    assert alert_resp.status_code == 200
+    alert_id = alert_resp.json()[0]["id"]
+
+    logs = db_session.query(NotificationLog).filter(
+        NotificationLog.alert_id == alert_id
+    ).all()
+    assert len(logs) == 1
+    assert logs[0].channel == "smtp_email"
+    assert logs[0].delivery_status == "delivered"
+    assert logs[0].provider_message_id == "smtp:critical-alerts@example.org"
 
 
 def test_idempotent_ingestion(client):

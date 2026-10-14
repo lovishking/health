@@ -33,6 +33,24 @@ class Settings(BaseSettings):
     TWILIO_FROM_NUMBER: str = ""
     TWILIO_TO_NUMBER: str = ""
 
+    # SMTP email notifications
+    SMTP_ENABLED: bool = False
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_FROM_NAME: str = "RT-HDSS Clinical Alerts"
+    SMTP_USE_TLS: bool = True
+
+    # Demo/bootstrap accounts for local startup
+    BOOTSTRAP_ADMIN_EMAIL: str = "admin@rthdss.local"
+    BOOTSTRAP_ADMIN_PASSWORD: str = "Admin@12345"
+    BOOTSTRAP_USER_EMAIL: str = "jaiswal.lovish.official@gmail.com"
+    BOOTSTRAP_USER_PASSWORD: str = "Lovish@12345"
+    BOOTSTRAP_USER_NAME: str = "Lovish"
+    BOOTSTRAP_USER_SMTP_PASSWORD: str = ""
+
     # ML Configuration
     XGBOOST_MODEL_PATH: str = "ml/models/xgboost_static_v1.json"
     LSTM_MODEL_PATH: str = "ml/models/lstm_temporal_v1.pt"

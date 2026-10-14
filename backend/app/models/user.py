@@ -20,6 +20,16 @@ class User(Base):
     display_name = Column(String(128), nullable=True)
     phone_number = Column(String(32), nullable=True)
     password_hash = Column(String(255), nullable=False)
-    role = Column(String(50), default="clinician", nullable=False)
+    role = Column(String(50), default="user", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+
+    smtp_host = Column(String(255), nullable=True)
+    smtp_port = Column(String(16), nullable=True)
+    smtp_username = Column(String(255), nullable=True)
+    smtp_password = Column(String(255), nullable=True)
+    smtp_from_email = Column(String(255), nullable=True)
+    smtp_from_name = Column(String(128), nullable=True)
+    smtp_use_tls = Column(Boolean, default=True, nullable=False)
+    smtp_enabled = Column(Boolean, default=False, nullable=False)
+
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)

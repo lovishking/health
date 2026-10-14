@@ -3,7 +3,7 @@ from app.schemas.patient import PatientCreate, PatientResponse
 from app.schemas.reading import VitalReadingCreate, BatchReadingCreate, VitalReadingResponse
 from app.schemas.prediction import RiskPredictionResponse
 from app.schemas.alert import AlertResponse, AlertAcknowledgeRequest
-from app.schemas.user import UserCreate, UserResponse
+from app.schemas.user import UserCreate, UserLogin, UserResponse, SmtpSettingsUpdate, TokenResponse
 
 __all__ = [
     "HealthResponse",
@@ -16,5 +16,8 @@ __all__ = [
     "AlertResponse",
     "AlertAcknowledgeRequest",
     "UserCreate",
+    "UserLogin",
     "UserResponse",
+    "SmtpSettingsUpdate",
+    "TokenResponse",
 ]

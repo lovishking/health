@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.alert import Alert
 from app.models.notification import NotificationLog
 from app.models.prediction import RiskPrediction
-from app.core.config import settings
+from app.services.notification_service import NotificationService
 
 
 class AlertService:
@@ -60,15 +60,17 @@ class AlertService:
         db.commit()
         db.refresh(alert)
 
-        # Log notification dispatch (mock or twilio)
-        notif = NotificationLog(
-            alert_id=alert.id,
-            channel="mock_sms" if not settings.TWILIO_ACCOUNT_SID else "twilio_sms",
-            delivery_status="mocked" if not settings.TWILIO_ACCOUNT_SID else "pending",
-            provider_message_id=f"msg-{alert.id[:8]}"
-        )
-        db.add(notif)
-        db.commit()
+        if severity == "critical":
+            NotificationService.send_critical_alert_emails(db=db, alert=alert)
+        else:
+            notif = NotificationLog(
+                alert_id=alert.id,
+                channel="websocket",
+                delivery_status="delivered",
+                provider_message_id=f"ws-{alert.id[:8]}"
+            )
+            db.add(notif)
+            db.commit()
 
         return alert
 
