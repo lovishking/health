@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Square, FastForward, Activity, CheckCircle, AlertTriangle, Terminal } from 'lucide-react';
-import { api } from '../api/client';
+import { Play, Pause, Square, Activity, Database, Terminal, Zap } from 'lucide-react';
+import { api, ReplayStatus } from '../api/client';
 import { Patient } from '../types';
 
 export const SimulatorPage: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [patientId, setPatientId] = useState('ICU-BED-101');
+  const [patientId, setPatientId] = useState('DEMO-001');
+  const [dataSource, setDataSource] = useState<'dataset' | 'synthetic'>('dataset');
   const [scenario, setScenario] = useState<'stable' | 'deteriorating' | 'critical_override'>('deteriorating');
   const [speed, setSpeed] = useState<number>(1000); // ms
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
+  const [stepCount, setStepCount] = useState(0);
 
   useEffect(() => {
     api.getPatients().then((data) => {
@@ -19,148 +21,175 @@ export const SimulatorPage: React.FC = () => {
         setPatientId(data[0].display_id);
       }
     }).catch(console.error);
-  }, []);
 
-  const isRunningRef = useRef(false);
-  const isPausedRef = useRef(false);
+    // Initial check of backend replay status
+    api.getReplayStatus().then((status) => {
+      if (status.is_running) {
+        setIsRunning(true);
+        setIsPaused(status.is_paused);
+        setPatientId(status.patient_id);
+        setStepCount(status.sent_count);
+        setSpeed(status.speed * 1000);
+        setDataSource(status.source.startsWith('physionet') ? 'dataset' : 'synthetic');
+        appendLog(`Connected to active backend stream for ${status.patient_id} (${status.source})`);
+      }
+    }).catch(console.error);
+  }, []);
 
   const appendLog = (msg: string) => {
     setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 100)]);
   };
 
-  const startReplay = async () => {
-    setIsRunning(true);
-    setIsPaused(false);
-    isRunningRef.current = true;
-    isPausedRef.current = false;
+  // Sync polling when running
+  useEffect(() => {
+    if (!isRunning) return;
 
-    appendLog(`Starting stream for ${patientId} (Scenario: ${scenario}, Interval: ${speed}ms)`);
-
-    let step = 0;
-    const maxSteps = 40;
-
-    const intervalId = window.setInterval(async () => {
-      if (!isRunningRef.current) {
-        clearInterval(intervalId);
-        return;
-      }
-      if (isPausedRef.current) {
-        return;
-      }
-
-      if (step >= maxSteps) {
-        appendLog(`Replay sequence finished (${maxSteps} steps sent).`);
-        setIsRunning(false);
-        isRunningRef.current = false;
-        clearInterval(intervalId);
-        return;
-      }
-
-      const progress = step / maxSteps;
-      let hr = 75,
-        spo2 = 98,
-        sys = 120,
-        dia = 80,
-        resp = 16,
-        temp = 37.0;
-
-      if (scenario === 'stable') {
-        hr = Math.round(72 + 5 * Math.sin(step * 0.4) + (Math.random() * 4 - 2));
-        spo2 = Math.round(98 + (Math.random() * 2 - 1));
-        sys = Math.round(120 + 4 * Math.sin(step * 0.3) + (Math.random() * 4 - 2));
-        dia = Math.round(80 + 3 * Math.sin(step * 0.3) + (Math.random() * 2 - 1));
-        resp = Math.round(16 + (Math.random() * 2 - 1));
-        temp = +(36.8 + (Math.random() * 0.2 - 0.1)).toFixed(1);
-      } else if (scenario === 'deteriorating') {
-        hr = Math.round(75 + progress * 70 + (Math.random() * 6 - 3)); // spikes to ~145
-        spo2 = Math.round(98 - progress * 17 + (Math.random() * 2 - 1)); // drops to ~81%
-        sys = Math.round(120 - progress * 45 + (Math.random() * 6 - 3)); // drops to ~75
-        dia = Math.round(80 - progress * 28 + (Math.random() * 4 - 2));
-        resp = Math.round(16 + progress * 18 + (Math.random() * 2 - 1)); // rises to ~34
-        temp = +(37.0 + progress * 2.3 + (Math.random() * 0.2 - 0.1)).toFixed(1); // fever ~39.3 C
-      } else if (scenario === 'critical_override') {
-        hr = Math.round(70 - progress * 35 + (Math.random() * 4 - 2)); // bradycardia ~35 bpm
-        spo2 = Math.round(95 - progress * 16 + (Math.random() * 2 - 1)); // hypoxemia ~79%
-        sys = Math.round(115 - progress * 45 + (Math.random() * 4 - 2)); // shock ~70 mmHg
-        dia = Math.round(75 - progress * 30 + (Math.random() * 2 - 1));
-        resp = Math.round(15 - progress * 8 + (Math.random() * 2 - 1));
-        temp = +(36.5 - progress * 3.0 + (Math.random() * 0.2 - 0.1)).toFixed(1); // hypothermia ~33.5 C
-      }
-
-      const payload = {
-        source: 'synthetic',
-        source_event_id: `live-sim-${patientId}-${step}-${Date.now()}`,
-        event_timestamp: new Date().toISOString(),
-        heart_rate: hr,
-        spo2: spo2,
-        systolic_bp: sys,
-        diastolic_bp: dia,
-        respiratory_rate: resp,
-        temperature: temp,
-      };
-
+    const interval = setInterval(async () => {
       try {
-        await api.postReading(patientId, payload);
-        appendLog(`[Step ${step + 1}/${maxSteps}] Ingested -> HR: ${hr} bpm | SpO2: ${spo2}% | BP: ${sys}/${dia} | Resp: ${resp}/min`);
-      } catch (err: any) {
-        appendLog(`[ERROR Step ${step + 1}] Failed to transmit: ${err.message}`);
+        const s = await api.getReplayStatus();
+        setIsRunning(s.is_running);
+        setIsPaused(s.is_paused);
+        setStepCount(s.sent_count);
+        if (s.last_reading) {
+          const lr = s.last_reading;
+          appendLog(`[#${s.sent_count}] HR: ${lr.heart_rate} bpm | SpO2: ${lr.spo2}% | BP: ${lr.systolic_bp}/${lr.diastolic_bp} | Source: ${lr.source}`);
+        }
+      } catch (e) {
+        // ignore
       }
+    }, 2000);
 
-      step++;
-    }, speed);
+    return () => clearInterval(interval);
+  }, [isRunning]);
+
+  const startReplay = async () => {
+    try {
+      const sourceKey = dataSource === 'dataset' ? 'physionet_2012' : 'synthetic_sim';
+      appendLog(`Initiating real-time replay for ${patientId} (Source: ${sourceKey}, Speed: ${speed / 1000}s)...`);
+      const res = await api.startReplay(patientId, speed / 1000, sourceKey, true);
+      setIsRunning(true);
+      setIsPaused(false);
+      setStepCount(res.sent_count);
+      appendLog(`Replay active! Streaming from ${res.source} (${res.total_records} records loaded)`);
+    } catch (err: any) {
+      appendLog(`[ERROR] Failed to start replay: ${err.message}`);
+    }
   };
 
-  const pauseReplay = () => {
-    setIsPaused(true);
-    isPausedRef.current = true;
-    appendLog('Replay stream paused.');
+  const pauseReplay = async () => {
+    try {
+      const res = await api.pauseReplay();
+      setIsPaused(true);
+      appendLog('Stream paused on server.');
+    } catch (err: any) {
+      appendLog(`[ERROR] Failed to pause: ${err.message}`);
+    }
   };
 
-  const resumeReplay = () => {
-    setIsPaused(false);
-    isPausedRef.current = false;
-    appendLog('Replay stream resumed.');
+  const resumeReplay = async () => {
+    try {
+      const res = await api.resumeReplay();
+      setIsPaused(false);
+      appendLog('Stream resumed on server.');
+    } catch (err: any) {
+      appendLog(`[ERROR] Failed to resume: ${err.message}`);
+    }
   };
 
-  const stopReplay = () => {
-    setIsRunning(false);
-    setIsPaused(false);
-    isRunningRef.current = false;
-    isPausedRef.current = false;
-    appendLog('Replay stream stopped.');
+  const stopReplay = async () => {
+    try {
+      await api.stopReplay();
+      setIsRunning(false);
+      setIsPaused(false);
+      appendLog('Stream stopped.');
+    } catch (err: any) {
+      appendLog(`[ERROR] Failed to stop: ${err.message}`);
+    }
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
-            <Activity className="w-6 h-6" />
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600">
+              <Activity className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">Physiological Replay & Simulation Engine</h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Streams real historical ICU datasets (PhysioNet Challenge 2012) and synthetic trajectories in real time
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-white">Physiological Replay & Simulation Engine</h1>
-            <p className="text-xs text-slate-400 mt-1">
-              Stream synthetic physiological trajectories and historical ICU data to test live ingestion and alerting
-            </p>
-          </div>
+          {isRunning && (
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-medium px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/70">
+                <span className="relative flex h-2 w-2">
+                  <span className={`${isPaused ? '' : 'animate-ping'} absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75`}></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                {isPaused ? 'PAUSED' : 'STREAMING LIVE'}
+              </div>
+              <span className="text-xs text-slate-600 font-mono bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/80">
+                #{stepCount} readings sent
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Control Console */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Settings Panel */}
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-white">Stream Configuration</h2>
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 space-y-4 shadow-xs">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Stream Configuration</h2>
+
+          {/* Data Source Selection */}
+          <div>
+            <label className="text-xs font-medium text-slate-700 block mb-1.5">Data Source:</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setDataSource('dataset')}
+                disabled={isRunning}
+                className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition ${
+                  dataSource === 'dataset'
+                    ? 'bg-sky-50 text-sky-700 border-sky-300 shadow-xs'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <Database className="w-3.5 h-3.5" /> PhysioNet 2012
+              </button>
+              <button
+                type="button"
+                onClick={() => setDataSource('synthetic')}
+                disabled={isRunning}
+                className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition ${
+                  dataSource === 'synthetic'
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-300 shadow-xs'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" /> Synthetic Sim
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+              {dataSource === 'dataset'
+                ? 'Replays authentic ICU time series from PhysioNet Challenge 2012 cohort.'
+                : 'Generates mathematical trajectories for algorithmic boundary testing.'}
+            </p>
+          </div>
 
           {/* Patient ID */}
           <div>
-            <label className="text-xs text-slate-400 block mb-1">Target Patient Bed:</label>
+            <label className="text-xs font-medium text-slate-700 block mb-1.5">Target Patient Bed:</label>
             <select
               value={patientId}
               onChange={(e) => setPatientId(e.target.value)}
               disabled={isRunning}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:border-sky-500 mb-1"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-mono outline-none focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition"
             >
               {patients.map((p) => (
                 <option key={p.id} value={p.display_id}>
@@ -173,96 +202,116 @@ export const SimulatorPage: React.FC = () => {
             </select>
           </div>
 
-          {/* Scenario */}
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">Simulation Trajectory:</label>
-            <select
-              value={scenario}
-              onChange={(e) => setScenario(e.target.value as any)}
-              disabled={isRunning}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-sky-500"
-            >
-              <option value="deteriorating">Deteriorating (Hypoxemia + Septic Tachycardia)</option>
-              <option value="critical_override">Critical Override (Severe Bradycardia & Shock)</option>
-              <option value="stable">Stable (Physiological Baseline Variations)</option>
-            </select>
-          </div>
+          {/* Scenario (only if synthetic) */}
+          {dataSource === 'synthetic' && (
+            <div>
+              <label className="text-xs font-medium text-slate-700 block mb-1.5">Simulation Trajectory:</label>
+              <select
+                value={scenario}
+                onChange={(e) => setScenario(e.target.value as any)}
+                disabled={isRunning}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition"
+              >
+                <option value="deteriorating">Deteriorating (Hypoxemia + Septic Tachycardia)</option>
+                <option value="critical_override">Critical Override (Severe Bradycardia & Shock)</option>
+                <option value="stable">Stable (Physiological Baseline Variations)</option>
+              </select>
+            </div>
+          )}
 
           {/* Speed */}
           <div>
-            <label className="text-xs text-slate-400 block mb-1">Playback Interval: {speed / 1000}s</label>
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="text-xs font-medium text-slate-700">Playback Interval:</label>
+              <span className="text-xs font-mono font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-100">
+                {speed / 1000}s
+              </span>
+            </div>
             <input
               type="range"
-              min={300}
-              max={3000}
-              step={100}
+              min="200"
+              max="5000"
+              step="100"
               value={speed}
               onChange={(e) => setSpeed(Number(e.target.value))}
               disabled={isRunning}
-              className="w-full accent-sky-500"
+              className="w-full accent-sky-600 cursor-pointer"
             />
+            <div className="flex justify-between text-[10px] text-slate-400 font-mono mt-1">
+              <span>0.2s (Rapid)</span>
+              <span>1.0s (Real-Time)</span>
+              <span>5.0s (Slow)</span>
+            </div>
           </div>
 
-          {/* Controls */}
-          <div className="pt-2 border-t border-slate-800 flex items-center gap-2">
+          {/* Action Buttons */}
+          <div className="pt-2 flex gap-2">
             {!isRunning ? (
               <button
                 onClick={startReplay}
-                className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-medium text-xs shadow-xs transition cursor-pointer"
               >
-                <Play className="w-3.5 h-3.5" /> Start Replay
+                <Play className="w-3.5 h-3.5 fill-current" /> Start Continuous Stream
               </button>
             ) : (
               <>
-                {!isPaused ? (
+                {isPaused ? (
                   <button
-                    onClick={pauseReplay}
-                    className="flex-1 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                    onClick={resumeReplay}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs shadow-xs transition cursor-pointer"
                   >
-                    <Pause className="w-3.5 h-3.5" /> Pause
+                    <Play className="w-3.5 h-3.5 fill-current" /> Resume
                   </button>
                 ) : (
                   <button
-                    onClick={resumeReplay}
-                    className="flex-1 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                    onClick={pauseReplay}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium text-xs shadow-xs transition cursor-pointer"
                   >
-                    <Play className="w-3.5 h-3.5" /> Resume
+                    <Pause className="w-3.5 h-3.5 fill-current" /> Pause
                   </button>
                 )}
                 <button
                   onClick={stopReplay}
-                  className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                  className="px-4 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-medium text-xs shadow-xs transition cursor-pointer"
                 >
-                  <Square className="w-3.5 h-3.5" /> Stop
+                  <Square className="w-3.5 h-3.5 fill-current" /> Stop
                 </button>
               </>
             )}
           </div>
         </div>
 
-        {/* Live Replay Terminal / Logs */}
-        <div className="lg:col-span-2 bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col">
-          <div className="flex items-center justify-between mb-3">
+        {/* Live Terminal Logs */}
+        <div className="lg:col-span-2 bg-white border border-slate-200/90 rounded-2xl p-5 flex flex-col font-mono text-xs shadow-xs">
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <Terminal className="w-4 h-4 text-sky-400" />
-              <h3 className="text-sm font-semibold text-white">Live Transmission Audit Log</h3>
+              <Terminal className="w-4 h-4 text-slate-500" />
+              <span className="text-slate-800 font-semibold text-xs font-sans">Replay Ingestion Telemetry Log</span>
             </div>
             <button
               onClick={() => setLogs([])}
-              className="text-[11px] text-slate-400 hover:text-slate-200"
+              className="text-[11px] text-slate-400 hover:text-slate-700 transition font-sans cursor-pointer"
             >
-              Clear Logs
+              Clear Log
             </button>
           </div>
 
-          <div className="flex-1 bg-slate-950 rounded-lg p-3 border border-slate-800/80 font-mono text-xs overflow-y-auto max-h-80 space-y-1">
+          <div className="flex-1 overflow-y-auto space-y-1.5 max-h-[350px] pr-2 select-text bg-slate-50/70 p-3 rounded-xl border border-slate-200/60">
             {logs.length === 0 ? (
-              <span className="text-slate-600">Replay engine idle. Click 'Start Replay' to transmit vitals.</span>
+              <p className="text-slate-400 italic">No stream events yet. Click &quot;Start Continuous Stream&quot; to begin.</p>
             ) : (
-              logs.map((log, index) => (
+              logs.map((log, i) => (
                 <div
-                  key={index}
-                  className={log.includes('ERROR') ? 'text-rose-400' : 'text-slate-300'}
+                  key={i}
+                  className={`text-[11px] leading-relaxed font-mono ${
+                    log.includes('ERROR')
+                      ? 'text-rose-600 font-semibold'
+                      : log.includes('PhysioNet') || log.includes('physionet')
+                      ? 'text-sky-700 font-medium'
+                      : log.includes('Replay active')
+                      ? 'text-emerald-700 font-semibold'
+                      : 'text-slate-700'
+                  }`}
                 >
                   {log}
                 </div>

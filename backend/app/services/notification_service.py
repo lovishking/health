@@ -1,44 +1,95 @@
+import logging
 import smtplib
 from email.message import EmailMessage
 from email.utils import formataddr
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.alert import Alert
 from app.models.notification import NotificationLog
 from app.models.patient import Patient
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
+
 
 class NotificationService:
     @staticmethod
-    def get_critical_email_recipients(db: Session) -> List[User]:
-        """Return active users who configured SMTP for critical alert email."""
-        return db.query(User).filter(
-            User.is_active.is_(True),
-            User.email.isnot(None),
-            User.smtp_enabled.is_(True),
-            User.smtp_host.isnot(None),
-            User.smtp_password.isnot(None),
-            User.smtp_from_email.isnot(None),
-        ).all()
+    def get_configured_receivers(db: Optional[Session] = None) -> List[Dict[str, str]]:
+        """
+        Return all unique recipient email addresses configured for clinical alerts:
+        1. From settings.SMTP_RECEIVER_EMAILS (system environment).
+        2. From active DB users with smtp_enabled=True.
+        """
+        receivers: Dict[str, str] = {}  # email -> display_name
+
+        # 1. System-level configured receiver emails
+        if settings.SMTP_RECEIVER_EMAILS:
+            for item in settings.SMTP_RECEIVER_EMAILS.split(","):
+                email = item.strip()
+                if email and "@" in email:
+                    receivers[email.lower()] = email.split("@")[0].replace(".", " ").title()
+
+        # 2. Database users with SMTP enabled
+        if db:
+            try:
+                users = db.query(User).filter(
+                    User.is_active.is_(True),
+                    User.email.isnot(None),
+                    User.smtp_enabled.is_(True)
+                ).all()
+                for u in users:
+                    if u.email and "@" in u.email:
+                        receivers[u.email.lower()] = u.display_name or u.email.split("@")[0].title()
+            except Exception as e:
+                logger.warning(f"[NOTIFICATION] Could not query DB users for receivers: {e}")
+
+        # Ensure requested default emails are present
+        defaults = [
+            "lovishjaiswal8@gmail.com",
+            "lovishjaiswal2023@gmail.com",
+            "lovishjaiswal2025@gmail.com"
+        ]
+        for d in defaults:
+            if d.lower() not in receivers:
+                receivers[d.lower()] = d.split("@")[0]
+
+        return [{"email": em, "name": name} for em, name in receivers.items()]
 
     @staticmethod
-    def smtp_configured(user: User) -> bool:
-        return bool(
-            user.smtp_enabled
-            and user.smtp_host
-            and user.smtp_password
-            and user.smtp_from_email
-        )
+    def get_smtp_sender_credentials(user: Optional[User] = None) -> Dict[str, Any]:
+        """Resolve SMTP sender configuration with precedence to settings, then user."""
+        host = settings.SMTP_HOST or (user.smtp_host if user else None) or "smtp.gmail.com"
+        port = int(settings.SMTP_PORT or (user.smtp_port if user else None) or 587)
+        username = settings.SMTP_USERNAME or (user.smtp_username if user else None) or "jaiswal.lovish.official@gmail.com"
+        password = settings.SMTP_PASSWORD or (user.smtp_password if user else None) or settings.BOOTSTRAP_USER_SMTP_PASSWORD
+        from_email = settings.SMTP_FROM_EMAIL or (user.smtp_from_email if user else None) or username
+        from_name = settings.SMTP_FROM_NAME or (user.smtp_from_name if user else None) or "RT-HDSS Clinical Alerts"
+        use_tls = settings.SMTP_USE_TLS if settings.SMTP_USE_TLS is not None else True
+
+        return {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "from_email": from_email,
+            "from_name": from_name,
+            "use_tls": use_tls,
+            "is_enabled": settings.SMTP_ENABLED or (user.smtp_enabled if user else False) or bool(password)
+        }
 
     @staticmethod
     def send_critical_alert_emails(db: Session, alert: Alert) -> List[NotificationLog]:
+        """
+        Send critical alert email notifications to all configured receiver emails
+        via authenticated SMTP (Google SMTP / TLS).
+        """
         if alert.severity != "critical":
             return []
 
-        recipients = NotificationService.get_critical_email_recipients(db)
+        recipients = NotificationService.get_configured_receivers(db)
         if not recipients:
             log = NotificationLog(
                 alert_id=alert.id,
@@ -51,23 +102,85 @@ class NotificationService:
             return [log]
 
         patient = db.query(Patient).filter(Patient.id == alert.patient_id).first()
+        sender_cfg = NotificationService.get_smtp_sender_credentials()
         logs: List[NotificationLog] = []
 
-        for recipient in recipients:
-            if NotificationService.smtp_configured(recipient):
-                status, provider_id = NotificationService._send_smtp_email(
-                    recipient=recipient,
-                    alert=alert,
-                    patient=patient,
-                )
-            else:
-                status = "mocked"
-                provider_id = f"mock-email:{recipient.email}"
+        patient_label = patient.display_id if patient else alert.patient_id
+        subject = f"🚨 [CRITICAL ALERT] Patient {patient_label} - RT-HDSS Clinical Decision Support"
+
+        for r in recipients:
+            target_email = r["email"]
+            greeting_name = r["name"]
+
+            plain_body = (
+                f"Hello {greeting_name},\n\n"
+                f"CRITICAL CLINICAL ALERT GENERATED BY RT-HDSS\n"
+                f"--------------------------------------------------\n"
+                f"Patient Bed:    {patient_label}\n"
+                f"Alert Severity: {alert.severity.upper()}\n"
+                f"Clinical Note:  {alert.message}\n"
+                f"Timestamp:      {alert.created_at.isoformat()} UTC\n"
+                f"--------------------------------------------------\n\n"
+                f"Immediate clinical assessment and bedside verification is recommended.\n"
+                f"Access the real-time monitoring console at http://localhost:5173/monitor?patient={patient_label}\n\n"
+                f"Notice: This is an automated real-time physiological decision-support notification.\n"
+            )
+
+            html_body = f"""
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #0f172a; color: #f8fafc; border-radius: 12px; border: 1px solid #334155; padding: 24px;">
+                <div style="border-bottom: 1px solid #334155; padding-bottom: 16px; margin-bottom: 20px;">
+                    <span style="background: #dc2626; color: #ffffff; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        Critical Priority Alert
+                    </span>
+                    <h2 style="color: #ffffff; margin: 12px 0 4px 0; font-size: 20px;">RT-HDSS Patient Deterioration Alert</h2>
+                    <p style="color: #94a3b8; margin: 0; font-size: 13px;">Real-Time Healthcare Decision Support System</p>
+                </div>
+
+                <div style="background: #1e293b; border-radius: 8px; padding: 16px; margin-bottom: 20px; border-left: 4px solid #ef4444;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                        <tr>
+                            <td style="color: #94a3b8; padding: 6px 0; width: 140px;">Patient Bed:</td>
+                            <td style="color: #ffffff; font-weight: bold; font-family: monospace;">{patient_label}</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #94a3b8; padding: 6px 0;">Severity:</td>
+                            <td style="color: #ef4444; font-weight: bold;">{alert.severity.upper()}</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #94a3b8; padding: 6px 0;">Clinical Finding:</td>
+                            <td style="color: #f8fafc;">{alert.message}</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #94a3b8; padding: 6px 0;">Detected At:</td>
+                            <td style="color: #cbd5e1; font-family: monospace;">{alert.created_at.strftime('%Y-%m-%d %H:%M:%S UTC')}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <a href="http://localhost:5173/monitor?patient={patient_label}" style="background: #0284c7; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; font-size: 14px; display: inline-block;">
+                        Open Patient Monitor
+                    </a>
+                </div>
+
+                <p style="color: #64748b; font-size: 11px; margin: 0; border-top: 1px solid #334155; padding-top: 16px; line-height: 1.5;">
+                    Clinical Notice: Automated decision support telemetry notification sent to verified clinical contacts ({target_email}). Always perform direct clinical bedside evaluation.
+                </p>
+            </div>
+            """
+
+            delivery_status, provider_id = NotificationService._dispatch_email(
+                sender_cfg=sender_cfg,
+                recipient_email=target_email,
+                subject=subject,
+                plain_body=plain_body,
+                html_body=html_body
+            )
 
             log = NotificationLog(
                 alert_id=alert.id,
-                channel="smtp_email" if NotificationService.smtp_configured(recipient) else "mock_email",
-                delivery_status=status,
+                channel="smtp_email",
+                delivery_status=delivery_status,
                 provider_message_id=provider_id,
             )
             db.add(log)
@@ -77,38 +190,77 @@ class NotificationService:
         return logs
 
     @staticmethod
-    def _send_smtp_email(
-        recipient: User,
-        alert: Alert,
-        patient: Patient | None,
+    def _dispatch_email(
+        sender_cfg: Dict[str, Any],
+        recipient_email: str,
+        subject: str,
+        plain_body: str,
+        html_body: Optional[str] = None
     ) -> Tuple[str, str]:
-        patient_label = patient.display_id if patient else alert.patient_id
-        subject = f"CRITICAL RT-HDSS Alert: {patient_label}"
-        greeting_name = recipient.display_name or "Clinician"
-        body = (
-            f"Hello {greeting_name},\n\n"
-            "A critical patient alert was generated automatically by RT-HDSS.\n\n"
-            f"Patient: {patient_label}\n"
-            f"Severity: {alert.severity.upper()}\n"
-            f"Alert: {alert.message}\n"
-            f"Created at: {alert.created_at.isoformat()}\n\n"
-            "Clinical research disclaimer: this is a decision-support notification "
-            "and requires review by qualified healthcare personnel.\n"
-        )
+        """Connect to SMTP server and send email message."""
+        if not sender_cfg.get("is_enabled"):
+            logger.info(f"[NOTIFICATION] SMTP is disabled, mocking delivery to {recipient_email}")
+            return "mocked", f"mock:{recipient_email}"
 
-        message = EmailMessage()
-        message["Subject"] = subject
-        message["From"] = formataddr((recipient.smtp_from_name or "RT-HDSS Clinical Alerts", recipient.smtp_from_email))
-        message["To"] = recipient.email
-        message.set_content(body)
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = formataddr((sender_cfg["from_name"], sender_cfg["from_email"]))
+        msg["To"] = recipient_email
+        msg.set_content(plain_body)
+
+        if html_body:
+            msg.add_alternative(html_body, subtype="html")
 
         try:
-            with smtplib.SMTP(recipient.smtp_host, int(recipient.smtp_port or 587), timeout=15) as smtp:
-                if recipient.smtp_use_tls:
-                    smtp.starttls()
-                if recipient.smtp_username:
-                    smtp.login(recipient.smtp_username, recipient.smtp_password)
-                smtp.send_message(message)
-            return "delivered", f"smtp:{recipient.email}"
+            with smtplib.SMTP(sender_cfg["host"], sender_cfg["port"], timeout=15) as server:
+                if sender_cfg.get("use_tls"):
+                    server.starttls()
+                if sender_cfg.get("username") and sender_cfg.get("password"):
+                    server.login(sender_cfg["username"], sender_cfg["password"])
+                server.send_message(msg)
+
+            logger.info(f"[NOTIFICATION] Successfully sent alert email to {recipient_email}")
+            return "delivered", f"smtp:{recipient_email}"
         except Exception as exc:
-            return "failed", f"smtp-error:{type(exc).__name__}:{recipient.email}"
+            logger.error(f"[NOTIFICATION] Failed to send email to {recipient_email}: {exc}")
+            return "failed", f"smtp-error:{type(exc).__name__}:{recipient_email}"
+
+    @staticmethod
+    def send_test_notification(recipients_override: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Send a test clinical alert email to verify SMTP delivery."""
+        sender_cfg = NotificationService.get_smtp_sender_credentials()
+        recipients = recipients_override or [r["email"] for r in NotificationService.get_configured_receivers()]
+
+        subject = "🧪 [TEST] RT-HDSS Clinical SMTP Notification Verification"
+        plain_body = (
+            "Hello Clinician,\n\n"
+            "This is a verified test email from the RT-HDSS (Real-Time Healthcare Decision Support System) SMTP Notification Engine.\n\n"
+            "If you are receiving this message, the alert notification pipeline is active and verified for clinical escalation.\n\n"
+            f"Active Sender: {sender_cfg.get('from_email')}\n"
+            f"SMTP Server:   {sender_cfg.get('host')}:{sender_cfg.get('port')}\n"
+        )
+        html_body = f"""
+        <div style="font-family: -apple-system, sans-serif; max-width: 550px; margin: 0 auto; background: #0f172a; color: #f8fafc; border-radius: 12px; border: 1px solid #334155; padding: 20px;">
+            <h3 style="color: #38bdf8; margin-top: 0;">🧪 RT-HDSS SMTP Notification Verified</h3>
+            <p style="color: #cbd5e1; font-size: 14px;">This test confirms that clinical alert notifications are correctly delivered to your inbox.</p>
+            <div style="background: #1e293b; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 12px; color: #e2e8f0;">
+                Sender: {sender_cfg.get('from_email')}<br/>
+                Server: {sender_cfg.get('host')}:{sender_cfg.get('port')}<br/>
+                TLS: {'Enabled' if sender_cfg.get('use_tls') else 'Disabled'}
+            </div>
+            <p style="color: #64748b; font-size: 11px; margin-top: 15px;">RT-HDSS Automated Health Alert System</p>
+        </div>
+        """
+
+        results = []
+        for r_email in recipients:
+            status, pid = NotificationService._dispatch_email(
+                sender_cfg=sender_cfg,
+                recipient_email=r_email,
+                subject=subject,
+                plain_body=plain_body,
+                html_body=html_body
+            )
+            results.append({"recipient": r_email, "status": status, "provider_id": pid})
+
+        return results

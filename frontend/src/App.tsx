@@ -9,7 +9,7 @@ import { SimulatorPage } from './pages/SimulatorPage';
 import { useWebSocket } from './hooks/useWebSocket';
 import { api } from './api/client';
 import { playAlertSound, requestBrowserNotificationPermission, sendBrowserNotification } from './utils/audio';
-import { AlertTriangle, Bell, X, ShieldAlert, ArrowRight } from 'lucide-react';
+import { AlertTriangle, Bell, X, ArrowRight } from 'lucide-react';
 
 interface ToastAlert {
   id: string;
@@ -70,35 +70,33 @@ export const App: React.FC = () => {
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-slate-950 flex flex-col font-sans selection:bg-sky-500 selection:text-white relative">
+      <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-sky-500 selection:text-white relative">
         <Navbar wsConnected={isConnected} />
 
         {/* Live Floating Alert Toast Banner */}
         {activeToast && (
-          <div className="fixed top-20 right-4 sm:right-6 z-50 max-w-md w-full bg-slate-900 border border-red-500/60 rounded-xl p-4 shadow-2xl glow-critical animate-bounce-once">
+          <div className="fixed top-20 right-4 sm:right-6 z-50 max-w-md w-full bg-white border border-rose-200 rounded-2xl p-4 shadow-xl glow-critical animate-bounce-once">
             <div className="flex items-start justify-between gap-3">
-              <div className="p-2 rounded-lg bg-red-500/20 text-red-400 mt-0.5">
+              <div className="p-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 mt-0.5">
                 <AlertTriangle className="w-5 h-5 animate-pulse" />
               </div>
               <div className="flex-1 space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
+                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
                     REAL-TIME {activeToast.severity} ALERT
                   </span>
-                  <span className="text-xs font-mono font-bold text-white">{activeToast.patient_id}</span>
+                  <span className="text-xs font-mono font-bold text-slate-900">{activeToast.patient_id}</span>
                   <span className="text-[10px] text-slate-400 font-mono">{activeToast.time}</span>
                 </div>
-                <p className="text-xs text-slate-200 font-medium leading-relaxed">{activeToast.message}</p>
+                <p className="text-xs text-slate-700 font-medium leading-relaxed">{activeToast.message}</p>
                 <div className="pt-2 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <Link
-                      to={`/monitor?patient=${activeToast.patient_id}`}
-                      onClick={() => setActiveToast(null)}
-                      className="text-xs text-sky-400 hover:text-sky-300 font-semibold inline-flex items-center gap-1"
-                    >
-                      View Telemetry <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
-                  </div>
+                  <Link
+                    to={`/monitor?patient=${activeToast.patient_id}`}
+                    onClick={() => setActiveToast(null)}
+                    className="text-xs text-sky-600 hover:text-sky-700 font-semibold inline-flex items-center gap-1"
+                  >
+                    View Telemetry <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
                   <button
                     onClick={async () => {
                       if (activeToast.id) {
@@ -109,7 +107,7 @@ export const App: React.FC = () => {
                       }
                       setActiveToast(null);
                     }}
-                    className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-medium text-xs transition"
+                    className="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs shadow-sm transition"
                   >
                     Acknowledge
                   </button>
@@ -117,7 +115,7 @@ export const App: React.FC = () => {
               </div>
               <button
                 onClick={() => setActiveToast(null)}
-                className="text-slate-400 hover:text-slate-200 p-1 rounded-md"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -127,19 +125,19 @@ export const App: React.FC = () => {
 
         {/* Notification Permission Prompt if not granted */}
         {!notificationsEnabled && (
-          <div className="bg-sky-950/60 border-b border-sky-900/60 py-2 px-4 text-center text-xs text-sky-200 flex items-center justify-center gap-2">
-            <Bell className="w-4 h-4 text-sky-400" />
+          <div className="bg-sky-50 border-b border-sky-100 py-2 px-4 text-center text-xs text-sky-900 flex items-center justify-center gap-2">
+            <Bell className="w-4 h-4 text-sky-600" />
             <span>Enable browser audio and desktop alerts to receive instant clinical notifications:</span>
             <button
               onClick={handleEnableNotifications}
-              className="px-2.5 py-0.5 rounded bg-sky-500 text-white font-semibold text-xs hover:bg-sky-400 transition"
+              className="px-2.5 py-0.5 rounded-lg bg-sky-600 text-white font-semibold text-xs hover:bg-sky-500 shadow-sm transition"
             >
               Enable Alerts
             </button>
           </div>
         )}
 
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <main className="flex-1 max-w-[1820px] w-full mx-auto px-4 sm:px-6 lg:px-8 2xl:px-10 py-6">
           <Routes>
             <Route path="/" element={<OverviewPage />} />
             <Route path="/monitor" element={<PatientDetailPage />} />
@@ -150,7 +148,7 @@ export const App: React.FC = () => {
           </Routes>
         </main>
 
-        <footer className="border-t border-slate-900 bg-slate-950 py-4 text-center text-xs text-slate-500">
+        <footer className="border-t border-slate-200/80 bg-white py-4 text-center text-xs text-slate-500">
           RT-HDSS Academic Research Prototype • Clinical Decision Support • Not for Autonomous Medical Diagnosis
         </footer>
       </div>

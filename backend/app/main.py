@@ -5,6 +5,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.base import Base
+import app.models  # Register all models on Base.metadata
 from app.db.session import SessionLocal, engine
 from app.api.v1.api import api_router
 from app.api.v1.endpoints import health
@@ -79,6 +80,35 @@ def ensure_bootstrap_users():
         user.smtp_from_email = settings.SMTP_FROM_EMAIL or settings.BOOTSTRAP_USER_EMAIL
         user.smtp_from_name = settings.SMTP_FROM_NAME
         user.smtp_use_tls = settings.SMTP_USE_TLS
+
+        # Ensure receiver emails exist as verified clinical notification recipients
+        receiver_emails = [
+            "lovishjaiswal8@gmail.com",
+            "lovishjaiswal2023@gmail.com",
+            "lovishjaiswal2025@gmail.com",
+        ]
+        for r_email in receiver_emails:
+            rec_user = db.query(User).filter(User.email == r_email).first()
+            if not rec_user:
+                rec_user = User(
+                    email=r_email,
+                    display_name=r_email.split("@")[0].title(),
+                    password_hash=hash_password("HospitalSecure2026!"),
+                    role="user",
+                    is_active=True,
+                    smtp_enabled=True,
+                    smtp_host=settings.SMTP_HOST or "smtp.gmail.com",
+                    smtp_port=str(settings.SMTP_PORT or 587),
+                    smtp_username=settings.SMTP_USERNAME,
+                    smtp_password=settings.SMTP_PASSWORD or settings.BOOTSTRAP_USER_SMTP_PASSWORD,
+                    smtp_from_email=settings.SMTP_FROM_EMAIL or settings.SMTP_USERNAME,
+                    smtp_from_name=settings.SMTP_FROM_NAME,
+                    smtp_use_tls=settings.SMTP_USE_TLS,
+                )
+                db.add(rec_user)
+            else:
+                rec_user.smtp_enabled = True
+                rec_user.is_active = True
 
         db.commit()
     finally:

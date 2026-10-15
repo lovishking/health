@@ -89,6 +89,12 @@ export const api = {
   },
 
   // Alerts
+  getAllAlerts: async (statusFilter?: string, limit = 50): Promise<Alert[]> => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (statusFilter) params.append('status_filter', statusFilter);
+    const res = await apiClient.get<Alert[]>(`/alerts?${params.toString()}`);
+    return res.data;
+  },
   getAlerts: async (patientId: string): Promise<Alert[]> => {
     const res = await apiClient.get<Alert[]>(`/patients/${patientId}/alerts`);
     return res.data;
@@ -99,4 +105,57 @@ export const api = {
     });
     return res.data;
   },
+
+  // Replay & Real-time Dataset Streaming
+  getReplayStatus: async (): Promise<ReplayStatus> => {
+    const res = await apiClient.get<ReplayStatus>('/replay/status');
+    return res.data;
+  },
+  getReplayDatasets: async (): Promise<any> => {
+    const res = await apiClient.get('/replay/datasets');
+    return res.data;
+  },
+  startReplay: async (patientId: string, speed = 1.0, source = 'physionet_2012', loop = true): Promise<ReplayStatus> => {
+    const res = await apiClient.post<ReplayStatus>('/replay/start', {
+      patient_id: patientId,
+      speed,
+      source,
+      loop,
+    });
+    return res.data;
+  },
+  pauseReplay: async (): Promise<ReplayStatus> => {
+    const res = await apiClient.post<ReplayStatus>('/replay/pause');
+    return res.data;
+  },
+  resumeReplay: async (): Promise<ReplayStatus> => {
+    const res = await apiClient.post<ReplayStatus>('/replay/resume');
+    return res.data;
+  },
+  stopReplay: async (): Promise<ReplayStatus> => {
+    const res = await apiClient.post<ReplayStatus>('/replay/stop');
+    return res.data;
+  },
+
+  // SMTP Notifications
+  getSmtpStatus: async (): Promise<any> => {
+    const res = await apiClient.get('/alerts/smtp-status');
+    return res.data;
+  },
+  sendTestSmtpAlert: async (recipients?: string[]): Promise<any> => {
+    const res = await apiClient.post('/alerts/test-smtp', { recipients });
+    return res.data;
+  },
 };
+
+export interface ReplayStatus {
+  is_running: boolean;
+  is_paused: boolean;
+  patient_id: string;
+  source: string;
+  speed: number;
+  sent_count: number;
+  current_step: number;
+  total_records: number;
+  last_reading: any;
+}

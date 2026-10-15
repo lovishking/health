@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = ""
     SMTP_FROM_NAME: str = "RT-HDSS Clinical Alerts"
     SMTP_USE_TLS: bool = True
+    SMTP_RECEIVER_EMAILS: str = "lovishjaiswal8@gmail.com,lovishjaiswal2023@gmail.com,lovishjaiswal2025@gmail.com"
 
     # Demo/bootstrap accounts for local startup
     BOOTSTRAP_ADMIN_EMAIL: str = "admin@rthdss.local"

@@ -56,3 +56,9 @@ yarn-error.log*
 *.swo
 .DS_Store
 Thumbs.db
+
+# Datasets & ICU Telemetry
+data/
+backend/data/
+*.csv
+
