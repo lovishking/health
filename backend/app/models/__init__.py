@@ -5,6 +5,7 @@ from app.models.reading import VitalReading
 from app.models.prediction import RiskPrediction
 from app.models.alert import Alert
 from app.models.notification import NotificationLog
+from app.models.notification_setting import NotificationSetting
 from app.models.audit import AuditLog
 
 __all__ = [

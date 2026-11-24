@@ -1,3 +1,4 @@
+import {visible} from '../profiles';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { WebSocketEvent } from '../types';
 
@@ -70,6 +71,7 @@ export function useWebSocket(patientId?: string, onEvent?: (event: WebSocketEven
       if (event.data === 'pong') return;
       try {
         const parsed: WebSocketEvent = JSON.parse(event.data);
+        if(parsed.patient_id && !visible(parsed.patient_id)) return;
         setLastMessage(parsed);
         if (onEventRef.current) {
           onEventRef.current(parsed);

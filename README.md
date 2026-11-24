@@ -91,14 +91,22 @@ cd ..
 
 ## 3. Running the Application
 
-### Start the Backend (Terminal 1)
+### Start the Backend and Frontend
+
+On Windows, double-click `start-app.bat`. It opens the backend, frontend, and a looping synthetic live-data stream in separate windows. Open the dashboard at `http://localhost:5173`, then choose **Monitoring** to see `DEMO-001` update once per second.
+
+To stop streaming, close the **RT-HDSS Live Data** window. To stop the API and dashboard, close their respective windows.
+
+You can also start services manually:
+
+#### Backend (Terminal 1)
 ```bash
 python -m uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
 - Interactive API Swagger Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 - Health Check: [http://localhost:8000/health](http://localhost:8000/health)
 
-### Start the Frontend Dashboard (Terminal 2)
+#### Frontend Dashboard (Terminal 2)
 ```bash
 cd frontend
 npm run dev

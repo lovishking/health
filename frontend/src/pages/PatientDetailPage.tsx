@@ -4,7 +4,6 @@ import { api, ReplayStatus } from '../api/client';
 import { Patient, VitalReading, RiskPrediction, Alert } from '../types';
 import { VitalCard } from '../components/VitalCard';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { playAlertSound } from '../utils/audio';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -43,13 +42,14 @@ export const PatientDetailPage: React.FC = () => {
 
   // Alerts column state
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [alertsScope, setAlertsScope] = useState<'this_bed' | 'all_beds'>('this_bed');
+  const [automaticEmail, setAutomaticEmail] = useState(true);
+  const [emailStatus, setEmailStatus] = useState('');
   const [newestAlertId, setNewestAlertId] = useState<string | null>(null);
 
   // Replay & Streaming state
   const [replayStatus, setReplayStatus] = useState<ReplayStatus | null>(null);
   const [streamSpeed, setStreamSpeed] = useState<number>(1.0);
-  const [streamSource, setStreamSource] = useState<string>('physionet_2012');
+  const [streamSource, setStreamSource] = useState<string>('synthetic_sim');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Load patients list for selector
@@ -79,15 +79,9 @@ export const PatientDetailPage: React.FC = () => {
   };
 
   // Fetch alerts for active patient or all beds
-  const loadAlerts = useCallback(async (pId: string, scope: 'this_bed' | 'all_beds') => {
+  const loadAlerts = useCallback(async () => {
     try {
-      if (scope === 'this_bed') {
-        const patientAlerts = await api.getAlerts(pId);
-        setAlerts(patientAlerts);
-      } else {
-        const all = await api.getAllAlerts(undefined, 40);
-        setAlerts(all);
-      }
+      setAlerts(await api.getAllAlerts('active', 100));
     } catch (err) {
       console.error('Failed to load alerts', err);
     }
@@ -95,8 +89,12 @@ export const PatientDetailPage: React.FC = () => {
 
   useEffect(() => {
     loadData(currentPatientId);
-    loadAlerts(currentPatientId, alertsScope);
-  }, [currentPatientId, alertsScope, loadAlerts]);
+    loadAlerts();
+  }, [currentPatientId, loadAlerts]);
+
+  useEffect(() => {
+    api.getDeliveryMode().then((mode) => setAutomaticEmail(mode.automatic_email)).catch(console.error);
+  }, []);
 
   // Track currentPatientId in a ref to avoid stale closures in WS handler
   const currentPatientIdRef = useRef(currentPatientId);
@@ -173,8 +171,6 @@ export const PatientDetailPage: React.FC = () => {
       // Prepend to stack so it mounts directly on top of previous alerts
       setAlerts((prev) => [newAlert, ...prev.filter((a) => a.id !== alertId)]);
 
-      // Chime audio alert
-      playAlertSound(isCrit);
     }
   }, []);
 
@@ -295,12 +291,7 @@ export const PatientDetailPage: React.FC = () => {
   const activePatient = patients.find((p) => p.display_id === currentPatientId);
 
   // Filtered alerts for display
-  const displayAlerts = useMemo(() => {
-    if (alertsScope === 'this_bed') {
-      return alerts.filter((a) => a.patient_id === currentPatientId);
-    }
-    return alerts;
-  }, [alerts, alertsScope, currentPatientId]);
+  const displayAlerts = useMemo(() => alerts.filter((alert) => alert.status === 'active' && alert.severity === 'critical'), [alerts]);
 
   const activeAlertsCount = displayAlerts.filter((a) => a.status === 'active').length;
 
@@ -854,29 +845,22 @@ export const PatientDetailPage: React.FC = () => {
             </span>
           </div>
 
-          {/* Scope Filter Switcher */}
-          <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-50 rounded-xl border border-slate-200/80 my-4 text-xs">
-            <button
-              onClick={() => setAlertsScope('this_bed')}
-              className={`py-2 rounded-lg font-medium transition cursor-pointer text-center ${
-                alertsScope === 'this_bed'
-                  ? 'bg-white text-slate-900 font-semibold shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              This Bed ({alerts.filter((a) => a.patient_id === currentPatientId).length})
-            </button>
-            <button
-              onClick={() => setAlertsScope('all_beds')}
-              className={`py-2 rounded-lg font-medium transition cursor-pointer text-center ${
-                alertsScope === 'all_beds'
-                  ? 'bg-white text-slate-900 font-semibold shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              All Beds ({alerts.length})
-            </button>
+          <div className="flex items-center justify-between gap-3 my-4 text-xs">
+            <span className="text-slate-600">Critical patients needing review</span>
+            <label className="flex items-center gap-2 text-slate-700">
+              <input type="checkbox" checked={automaticEmail} onChange={async (event) => {
+                try {
+                  const mode = await api.setDeliveryMode(event.target.checked);
+                  setAutomaticEmail(mode.automatic_email);
+                  setEmailStatus('');
+                } catch {
+                  setEmailStatus('Could not update email mode');
+                }
+              }} />
+              Automatic email
+            </label>
           </div>
+          {emailStatus && <p className="text-xs text-slate-600 mb-3">{emailStatus}</p>}
 
           {/* Alerts Stack List */}
           <div className="space-y-3.5 max-h-[calc(100vh-280px)] overflow-y-auto pr-1">
@@ -885,7 +869,7 @@ export const PatientDetailPage: React.FC = () => {
                 <CheckCircle2 className="w-9 h-9 text-emerald-500 mx-auto mb-2.5 opacity-80" />
                 <p className="text-xs font-semibold text-slate-800">No active alerts</p>
                 <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                  All physiological vital parameters are currently within safe baseline targets.
+                  No critical patient is awaiting review.
                 </p>
               </div>
             ) : (
@@ -934,19 +918,29 @@ export const PatientDetailPage: React.FC = () => {
                       {alert.message}
                     </p>
 
-                    {/* Footer: Acknowledge Button */}
+                    {/* Footer: Email and acknowledgement actions */}
                     <div className="flex items-center justify-between pt-2.5 border-t border-slate-100">
                       <span className="text-[10px] text-slate-400 font-sans">
                         {isAcknowledged ? 'Acknowledged' : 'Pending bedside review'}
                       </span>
 
                       {!isAcknowledged ? (
-                        <button
-                          onClick={() => handleAcknowledgeAlert(alert.id)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-semibold shadow-2xs transition cursor-pointer"
-                        >
-                          <Check className="w-3.5 h-3.5 text-emerald-600" /> Acknowledge
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {!automaticEmail && <button onClick={async () => {
+                            try {
+                              const result = await api.sendAlertEmail(alert.id);
+                              setEmailStatus(result.results.some((item) => item.status === 'delivered') ? 'Email sent' : 'Email delivery failed');
+                            } catch {
+                              setEmailStatus('Email could not be sent');
+                            }
+                          }} className="text-sky-700 text-xs font-semibold">Send email</button>}
+                          <button
+                            onClick={() => handleAcknowledgeAlert(alert.id)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-semibold shadow-2xs transition cursor-pointer"
+                          >
+                            <Check className="w-3.5 h-3.5 text-emerald-600" /> Acknowledge
+                          </button>
+                        </div>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-medium">
                           <CheckCircle2 className="w-3.5 h-3.5" /> Reviewed

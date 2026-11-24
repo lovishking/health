@@ -1,14 +1,36 @@
+import {useProfiles} from './profiles';
+import {Management} from './pages/Management';
+import {useLocation} from 'react-router-dom';
+import type {Patient} from './types';
+function PatientView({children}:{children:React.ReactNode}) {
+  const {active,assignments}=useProfiles();
+  const [rows,setRows]=useState<Patient[]|null>(null);
+  const [error,setError]=useState(false);
+  const loc=useLocation();
+  useEffect(()=>{let live=true;api.getPatients().then(r=>{if(live)setRows(r)}).catch(()=>{if(live)setError(true)});return()=>{live=false}},[active,assignments]);
+  if (active === 'super' && loc.pathname === '/monitor') {
+    if (!new URLSearchParams(loc.search).get('patient')) {
+      return <OverviewPage title="All-patient monitoring" />;
+    }
+    return <><Link className="primary-control" to="/monitor">All patients</Link>{children}</>;
+  }
+  if(active==='super') return <>{children}</>;
+  if(error || !rows?.length) return <p>{error?'Could not load patients.':rows?'No patients assigned to this doctor.':'Loading assigned patients...'}</p>;
+  if(!rows.some(p=>p.display_id===new URLSearchParams(loc.search).get('patient'))) return <Navigate replace to={loc.pathname+'?patient='+encodeURIComponent(rows[0].display_id)}/>;
+  return <>{children}</>;
+}
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
 import { OverviewPage } from './pages/OverviewPage';
+import { HomePage } from './pages/HomePage';
 import { PatientDetailPage } from './pages/PatientDetailPage';
 import { RiskExplanationPage } from './pages/RiskExplanationPage';
 import { AlertsPage } from './pages/AlertsPage';
 import { SimulatorPage } from './pages/SimulatorPage';
 import { useWebSocket } from './hooks/useWebSocket';
 import { api } from './api/client';
-import { playAlertSound, requestBrowserNotificationPermission, sendBrowserNotification } from './utils/audio';
+import { requestBrowserNotificationPermission, sendBrowserNotification } from './utils/audio';
 import { AlertTriangle, Bell, X, ArrowRight } from 'lucide-react';
 
 interface ToastAlert {
@@ -20,6 +42,11 @@ interface ToastAlert {
 }
 
 export const App: React.FC = () => {
+  const state=useProfiles();
+  return <Workspace key={state.active==='super'?state.active:JSON.stringify(state)}/>;
+};
+const Workspace: React.FC = () => {
+  const {active}=useProfiles();
   const [activeToast, setActiveToast] = useState<ToastAlert | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
@@ -49,8 +76,6 @@ export const App: React.FC = () => {
         event.data?.message ||
         `Critical physiological deterioration detected for ${patientId} (Risk Tier: ${event.data?.risk_tier || 'Critical'})`;
 
-      // Play audio chime
-      playAlertSound(isCritical);
 
       // Send desktop notification
       sendBrowserNotification(`Clinical Alert: ${patientId}`, message);
@@ -127,7 +152,7 @@ export const App: React.FC = () => {
         {!notificationsEnabled && (
           <div className="bg-sky-50 border-b border-sky-100 py-2 px-4 text-center text-xs text-sky-900 flex items-center justify-center gap-2">
             <Bell className="w-4 h-4 text-sky-600" />
-            <span>Enable browser audio and desktop alerts to receive instant clinical notifications:</span>
+            <span>Enable desktop alerts to receive clinical notifications:</span>
             <button
               onClick={handleEnableNotifications}
               className="px-2.5 py-0.5 rounded-lg bg-sky-600 text-white font-semibold text-xs hover:bg-sky-500 shadow-sm transition"
@@ -139,17 +164,19 @@ export const App: React.FC = () => {
 
         <main className="flex-1 max-w-[1820px] w-full mx-auto px-4 sm:px-6 lg:px-8 2xl:px-10 py-6">
           <Routes>
-            <Route path="/" element={<OverviewPage />} />
-            <Route path="/monitor" element={<PatientDetailPage />} />
-            <Route path="/risk" element={<RiskExplanationPage />} />
+            <Route path="/" element={<HomePage />} />
+            <Route path="/overview" element={<OverviewPage />} />
+            <Route path="/monitor" element={<PatientView><PatientDetailPage /></PatientView>} />
+            <Route path="/risk" element={<PatientView><RiskExplanationPage /></PatientView>} />
             <Route path="/alerts" element={<AlertsPage />} />
-            <Route path="/simulator" element={<SimulatorPage />} />
+            <Route path="/simulator" element={<PatientView><SimulatorPage/></PatientView>} />
+            <Route path="/management" element={active==="super"?<Management/>:<Navigate to="/overview" replace/>}/>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
 
         <footer className="border-t border-slate-200/80 bg-white py-4 text-center text-xs text-slate-500">
-          RT-HDSS Academic Research Prototype • Clinical Decision Support • Not for Autonomous Medical Diagnosis
+          <div className="exhibition-footer"><strong>RT-HDSS</strong><span>Academic research prototype · Clinical decision support</span><small>Not for autonomous medical diagnosis</small></div>
         </footer>
       </div>
     </BrowserRouter>

@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, Square, Activity, Database, Terminal, Zap } from 'lucide-react';
 import { api, ReplayStatus } from '../api/client';
 import { Patient } from '../types';
+import {useSearchParams} from 'react-router-dom';
 
 export const SimulatorPage: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [patientId, setPatientId] = useState('DEMO-001');
+  const [params] = useSearchParams();
+  const [patientId, setPatientId] = useState(params.get('patient') || 'DEMO-001');
   const [dataSource, setDataSource] = useState<'dataset' | 'synthetic'>('dataset');
   const [scenario, setScenario] = useState<'stable' | 'deteriorating' | 'critical_override'>('deteriorating');
   const [speed, setSpeed] = useState<number>(1000); // ms
@@ -117,7 +119,7 @@ export const SimulatorPage: React.FC = () => {
               <Activity className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900 tracking-tight">Physiological Replay & Simulation Engine</h1>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">Stream simulator</h1>
               <p className="text-xs text-slate-500 mt-0.5">
                 Streams real historical ICU datasets (PhysioNet Challenge 2012) and synthetic trajectories in real time
               </p>

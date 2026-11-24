@@ -61,14 +61,12 @@ export const RiskExplanationPage: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-slate-900">Risk Assessment & Decision Explanation</h1>
+              <h1 className="text-xl font-bold text-slate-900">Risk assessment</h1>
               <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200">
                 {currentPatientId}
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Multi-tiered decision pipeline: ML Probability Fusion + Clinical Safety Override
-            </p>
+
           </div>
 
           <div className="text-right">

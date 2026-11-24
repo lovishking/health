@@ -90,15 +90,8 @@ export const VitalCard: React.FC<VitalCardProps> = ({
 
   return (
     <div
-      className={`rounded-2xl border p-4.5 transition-all duration-200 relative overflow-hidden flex flex-col justify-between group ${theme.card}`}
+      className={`rounded-lg min-w-0 border p-4 transition-all duration-200 relative overflow-hidden flex flex-col justify-between group ${theme.card}`}
     >
-      {/* Background Micro ECG waveform decoration */}
-      <div className="absolute right-0 top-0 bottom-0 w-32 pointer-events-none opacity-[0.04] group-hover:opacity-[0.08] transition-opacity flex items-center justify-end pr-2 overflow-hidden">
-        <svg viewBox="0 0 100 30" className="w-28 h-12 stroke-current text-slate-900 fill-none" strokeWidth="2">
-          <path d="M0,15 L25,15 L32,5 L38,25 L44,15 L50,15 L55,9 L60,21 L65,15 L100,15" />
-        </svg>
-      </div>
-
       <div>
         {/* Top Header */}
         <div className="flex items-center justify-between mb-3">
@@ -111,8 +104,8 @@ export const VitalCard: React.FC<VitalCardProps> = ({
         </div>
 
         {/* Main Vital Value */}
-        <div className="flex items-baseline gap-1.5 my-1">
-          <span className={`text-3xl sm:text-[34px] font-extrabold tracking-tight font-mono ${theme.valText}`}>
+        <div className="flex flex-wrap items-baseline gap-1.5 my-1">
+          <span className={`text-2xl font-semibold tabular-nums ${theme.valText}`}>
             {value !== undefined && value !== null ? value : '--'}
           </span>
           <span className="text-xs font-semibold text-slate-400 font-mono">{unit}</span>
@@ -139,7 +132,7 @@ export const VitalCard: React.FC<VitalCardProps> = ({
       )}
 
       {/* Bottom Status / Normal Range Row */}
-      <div className="pt-2.5 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-500">
+      <div className="pt-2.5 border-t border-slate-100/80 flex flex-wrap gap-1 items-center justify-between text-[11px] text-slate-500">
         <span className="font-mono text-slate-400 text-[10px]">Norm: {normalRange}</span>
         {isCritical ? (
           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1 bg-rose-100 text-rose-700 border-rose-200">

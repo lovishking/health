@@ -6,6 +6,9 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: { sans: ['Inter', 'Segoe UI', 'sans-serif'], mono: ['JetBrains Mono', 'Consolas', 'monospace'] },
+      borderRadius: { xl: '6px', '2xl': '8px', '3xl': '8px' },
+      letterSpacing: { tight: '0', wider: '0', widest: '0' },
       colors: {
         clinical: {
           dark: '#0B1120',

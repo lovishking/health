@@ -7,9 +7,43 @@ from app.schemas.alert import AlertResponse, AlertAcknowledgeRequest
 from app.services.patient_service import PatientService
 from app.services.alert_service import AlertService
 from app.services.notification_service import NotificationService
+from app.models.alert import Alert
+from app.models.notification_setting import NotificationSetting
 from app.core.config import settings
 
 router = APIRouter()
+
+
+class DeliveryModeRequest(BaseModel):
+    automatic_email: bool
+
+
+@router.get("/alerts/delivery-mode")
+def get_delivery_mode(db: Session = Depends(get_db)):
+    setting = db.get(NotificationSetting, 1)
+    return {"automatic_email": setting.automatic_email if setting else True}
+
+
+@router.put("/alerts/delivery-mode")
+def update_delivery_mode(request: DeliveryModeRequest, db: Session = Depends(get_db)):
+    setting = db.get(NotificationSetting, 1)
+    if setting is None:
+        setting = NotificationSetting(id=1)
+        db.add(setting)
+    setting.automatic_email = request.automatic_email
+    db.commit()
+    return {"automatic_email": setting.automatic_email}
+
+
+@router.post("/alerts/{alert_id}/send-email")
+def send_alert_email(alert_id: str, db: Session = Depends(get_db)):
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    if alert.severity != "critical" or alert.status != "active":
+        raise HTTPException(status_code=409, detail="Only active critical alerts can be emailed")
+    logs = NotificationService.send_critical_alert_emails(db, alert)
+    return {"results": [{"status": log.delivery_status, "recipient": log.provider_message_id} for log in logs]}
 
 
 class TestSmtpRequest(BaseModel):
@@ -36,8 +70,7 @@ def get_smtp_status(db: Session = Depends(get_db)):
 @router.post("/alerts/test-smtp", status_code=status.HTTP_200_OK)
 def send_test_smtp_alert(req: Optional[TestSmtpRequest] = None, db: Session = Depends(get_db)):
     """Trigger a live test SMTP clinical alert email to configured receivers."""
-    recipients = req.recipients if (req and req.recipients) else None
-    results = NotificationService.send_test_notification(recipients_override=recipients)
+    results = NotificationService.send_test_notification()
     return {
         "status": "completed",
         "results": results

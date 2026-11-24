@@ -4,6 +4,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from app.models.alert import Alert
 from app.models.notification import NotificationLog
+from app.models.notification_setting import NotificationSetting
 from app.models.prediction import RiskPrediction
 from app.services.notification_service import NotificationService
 
@@ -60,7 +61,8 @@ class AlertService:
         db.commit()
         db.refresh(alert)
 
-        if severity == "critical":
+        setting = db.get(NotificationSetting, 1)
+        if severity == "critical" and (setting is None or setting.automatic_email):
             NotificationService.send_critical_alert_emails(db=db, alert=alert)
         else:
             notif = NotificationLog(

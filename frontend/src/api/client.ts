@@ -1,3 +1,4 @@
+import {rememberPatients,visible,currentDoctor} from '../profiles';
 import axios from 'axios';
 import { Patient, VitalReading, RiskPrediction, Alert, ClinicianUser } from '../types';
 
@@ -56,8 +57,12 @@ export const api = {
 
   // Patients
   getPatients: async (): Promise<Patient[]> => {
-    const res = await apiClient.get<Patient[]>('/patients');
-    return res.data;
+    const rows: Patient[] = [];
+    for (;;) {
+      const res = await apiClient.get<Patient[]>('/patients',{params:{skip:rows.length,limit:100}});
+      rows.push(...res.data);
+      if(res.data.length<100) return rememberPatients(rows);
+    }
   },
   getPatient: async (patientId: string): Promise<Patient> => {
     const res = await apiClient.get<Patient>(`/patients/${patientId}`);
@@ -89,11 +94,23 @@ export const api = {
   },
 
   // Alerts
+  getDeliveryMode: async (): Promise<{ automatic_email: boolean }> => {
+    const res = await apiClient.get('/alerts/delivery-mode');
+    return res.data;
+  },
+  setDeliveryMode: async (automatic_email: boolean): Promise<{ automatic_email: boolean }> => {
+    const res = await apiClient.put('/alerts/delivery-mode', { automatic_email });
+    return res.data;
+  },
+  sendAlertEmail: async (alertId: string): Promise<{ results: { status: string }[] }> => {
+    const res = await apiClient.post(`/alerts/${alertId}/send-email`);
+    return res.data;
+  },
   getAllAlerts: async (statusFilter?: string, limit = 50): Promise<Alert[]> => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (statusFilter) params.append('status_filter', statusFilter);
     const res = await apiClient.get<Alert[]>(`/alerts?${params.toString()}`);
-    return res.data;
+    return res.data.filter(a=>visible(a.patient_id));
   },
   getAlerts: async (patientId: string): Promise<Alert[]> => {
     const res = await apiClient.get<Alert[]>(`/patients/${patientId}/alerts`);
@@ -101,7 +118,7 @@ export const api = {
   },
   acknowledgeAlert: async (alertId: string, clinician = 'Dr. Clinician'): Promise<Alert> => {
     const res = await apiClient.post<Alert>(`/alerts/${alertId}/acknowledge`, {
-      acknowledged_by: clinician,
+      acknowledged_by: currentDoctor().name,
     });
     return res.data;
   },
@@ -109,6 +126,10 @@ export const api = {
   // Replay & Real-time Dataset Streaming
   getReplayStatus: async (): Promise<ReplayStatus> => {
     const res = await apiClient.get<ReplayStatus>('/replay/status');
+    if (!visible(res.data.patient_id)) return {
+      is_running:false, is_paused:false, patient_id:'', source:'', speed:1,
+      sent_count:0, current_step:0, total_records:0, last_reading:null,
+    };
     return res.data;
   },
   getReplayDatasets: async (): Promise<any> => {
@@ -116,6 +137,7 @@ export const api = {
     return res.data;
   },
   startReplay: async (patientId: string, speed = 1.0, source = 'physionet_2012', loop = true): Promise<ReplayStatus> => {
+    if (!visible(patientId)) throw new Error('Patient is outside the selected profile');
     const res = await apiClient.post<ReplayStatus>('/replay/start', {
       patient_id: patientId,
       speed,

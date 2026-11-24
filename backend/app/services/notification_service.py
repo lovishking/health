@@ -18,11 +18,7 @@ logger = logging.getLogger(__name__)
 class NotificationService:
     @staticmethod
     def get_configured_receivers(db: Optional[Session] = None) -> List[Dict[str, str]]:
-        """
-        Return all unique recipient email addresses configured for clinical alerts:
-        1. From settings.SMTP_RECEIVER_EMAILS (system environment).
-        2. From active DB users with smtp_enabled=True.
-        """
+        """Return the configured clinical alert receiver."""
         receivers: Dict[str, str] = {}  # email -> display_name
 
         # 1. System-level configured receiver emails
@@ -31,30 +27,6 @@ class NotificationService:
                 email = item.strip()
                 if email and "@" in email:
                     receivers[email.lower()] = email.split("@")[0].replace(".", " ").title()
-
-        # 2. Database users with SMTP enabled
-        if db:
-            try:
-                users = db.query(User).filter(
-                    User.is_active.is_(True),
-                    User.email.isnot(None),
-                    User.smtp_enabled.is_(True)
-                ).all()
-                for u in users:
-                    if u.email and "@" in u.email:
-                        receivers[u.email.lower()] = u.display_name or u.email.split("@")[0].title()
-            except Exception as e:
-                logger.warning(f"[NOTIFICATION] Could not query DB users for receivers: {e}")
-
-        # Ensure requested default emails are present
-        defaults = [
-            "lovishjaiswal8@gmail.com",
-            "lovishjaiswal2023@gmail.com",
-            "lovishjaiswal2025@gmail.com"
-        ]
-        for d in defaults:
-            if d.lower() not in receivers:
-                receivers[d.lower()] = d.split("@")[0]
 
         return [{"email": em, "name": name} for em, name in receivers.items()]
 
@@ -89,6 +61,7 @@ class NotificationService:
         if alert.severity != "critical":
             return []
 
+        patient = db.query(Patient).filter(Patient.id == alert.patient_id).first()
         recipients = NotificationService.get_configured_receivers(db)
         if not recipients:
             log = NotificationLog(
@@ -101,7 +74,6 @@ class NotificationService:
             db.commit()
             return [log]
 
-        patient = db.query(Patient).filter(Patient.id == alert.patient_id).first()
         sender_cfg = NotificationService.get_smtp_sender_credentials()
         logs: List[NotificationLog] = []
 
@@ -229,7 +201,7 @@ class NotificationService:
     def send_test_notification(recipients_override: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """Send a test clinical alert email to verify SMTP delivery."""
         sender_cfg = NotificationService.get_smtp_sender_credentials()
-        recipients = recipients_override or [r["email"] for r in NotificationService.get_configured_receivers()]
+        recipients = [r["email"] for r in NotificationService.get_configured_receivers()]
 
         subject = "🧪 [TEST] RT-HDSS Clinical SMTP Notification Verification"
         plain_body = (
